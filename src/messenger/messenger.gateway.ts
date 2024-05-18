@@ -1,7 +1,9 @@
 import { BadGatewayException } from '@nestjs/common';
 import {
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
@@ -64,5 +66,26 @@ export class MessengerService
         await this.redisService.getSetMembers(ONLINE_USER_REDIS_SET_KEY),
       ),
     ];
+  }
+
+  @SubscribeMessage('provideReceiverUserDetails')
+  async giveReceiverUserDetails(@MessageBody() userId: string) {
+    const user = await this.userService.getUserById(userId, [
+      '-createdAt',
+      '-updatedAt',
+      '-__v',
+    ]);
+    const data = user.toJSON({
+      transform(doc, ret) {
+        ret.id = String(doc._id);
+        delete ret._id;
+      },
+    });
+    console.log(`✨ `, userId);
+
+    return {
+      event: 'consumeReceiverUserDetails',
+      data,
+    };
   }
 }
