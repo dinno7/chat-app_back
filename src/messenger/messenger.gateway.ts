@@ -81,11 +81,20 @@ export class MessengerService
         delete ret._id;
       },
     });
-    console.log(`✨ `, userId);
 
     return {
       event: 'consumeReceiverUserDetails',
       data,
     };
+  }
+
+  @SubscribeMessage('message')
+  async handleMessage(@MessageBody() message: any) {
+    console.log(`✨ `, message);
+    this.server.to(message.to).emit('message', {
+      user: message.from,
+      message: message.msg,
+    });
+    return { event: 'messageAck', data: true };
   }
 }
