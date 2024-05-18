@@ -31,6 +31,7 @@ export class User {
   @Prop({
     required: false,
     default: null,
+    select: false,
   })
   passwordUpdatedAt?: Date;
 
