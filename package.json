@@ -29,6 +29,7 @@
     "@nestjs/platform-socket.io": "^10.3.8",
     "@nestjs/websockets": "^10.3.8",
     "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.6",
     "ioredis": "^5.4.1",
     "mongoose": "^8.3.4",
     "nestjs-zod": "^3.0.0",

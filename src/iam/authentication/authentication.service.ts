@@ -11,7 +11,6 @@ import { RedisService } from 'src/redis/redis.service';
 import { UserService } from 'src/user/user.service';
 import jwtConfig from '../configs/jwt.config';
 import { HashingService } from '../hashing/hashing.service';
-import { RefreshTokenDto } from './dtos/refresh-token.dto';
 import { SignInDto } from './dtos/sign-in.dto';
 import { SignUpDto } from './dtos/sign-up.dto';
 import { InvalidRefreshTokenException } from './exceptions/invalid-refresh-token.exeption';
@@ -75,13 +74,10 @@ export class AuthenticationService {
         type,
         tokenId,
         id: userId,
-      } = <RefreshTokenPayload>await this.jwtService.verifyAsync(refreshToken, {
-        secret: this.jwtConfigurations.refreshTokenSecret,
-        audience: this.jwtConfigurations.audience,
-        issuer: this.jwtConfigurations.issuer,
-      });
+      } = <RefreshTokenPayload>await this.jwtService.decode(refreshToken);
+      if (type !== 'refresh' || !userId || !tokenId) throw new Error();
 
-      if (type !== 'refresh') throw new Error();
+      if (!(await this.redisService.get(tokenId))) throw new Error();
 
       const user = await this.userService.getUserById(userId);
       if (!user) throw new Error();
@@ -89,11 +85,15 @@ export class AuthenticationService {
       if (!(await this.redisService.remove(tokenId))) throw new Error();
       return true;
     } catch (error) {
+      console.error(
+        '⭕️ ~ ERROR  ~ in server: src/iam/authentication/authentication.service.ts ~> ❗',
+        error,
+      );
       throw new BadRequestException('Invalid refresh token');
     }
   }
 
-  async refreshToken({ refreshToken: receivedToken }: RefreshTokenDto) {
+  async refreshTheToken(receivedToken: string) {
     try {
       const {
         type,
@@ -131,7 +131,9 @@ export class AuthenticationService {
         //-> Notify user that refresh token was stolen and get hacked
         throw err;
       }
-      throw new BadRequestException('Invalid refresh token');
+      throw new BadRequestException(
+        'Your session has timed out, you must login again',
+      );
     }
   }
 
