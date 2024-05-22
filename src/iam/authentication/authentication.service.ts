@@ -70,12 +70,13 @@ export class AuthenticationService {
 
   async signOut(refreshToken: string) {
     try {
-      const {
-        type,
-        tokenId,
-        id: userId,
-      } = <RefreshTokenPayload>await this.jwtService.decode(refreshToken);
-      if (type !== 'refresh' || !userId || !tokenId) throw new Error();
+      const token = <RefreshTokenPayload>(
+        await this.jwtService.decode(refreshToken)
+      );
+      if (token?.type !== 'refresh' || !token?.id || !token?.tokenId)
+        throw new Error();
+
+      const { tokenId, id: userId } = token;
 
       if (!(await this.redisService.get(tokenId))) throw new Error();
 
@@ -89,7 +90,6 @@ export class AuthenticationService {
         '⭕️ ~ ERROR  ~ in server: src/iam/authentication/authentication.service.ts ~> ❗',
         error,
       );
-      throw new BadRequestException('Invalid refresh token');
     }
   }
 
