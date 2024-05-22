@@ -1,8 +1,14 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 
-@Schema({ timestamps: true })
+@Schema({
+  timestamps: true,
+  toObject: { virtuals: true },
+  toJSON: { virtuals: true },
+})
 export class User {
+  id?: string;
+
   @Prop({
     required: [true, 'User name is required'],
     trim: true,
@@ -43,5 +49,8 @@ export class User {
 }
 
 export type UserDocument = HydratedDocument<User>;
-
 export const UserSchema = SchemaFactory.createForClass(User);
+
+UserSchema.virtual('id').get(function () {
+  return this._id.toHexString();
+});

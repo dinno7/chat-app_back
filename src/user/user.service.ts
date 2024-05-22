@@ -12,6 +12,10 @@ export class UserService {
     private readonly jwtService: JwtService,
   ) {}
 
+  get model() {
+    return this.UserModel;
+  }
+
   getAll(): Promise<UserDocument[]> {
     return this.UserModel.find().exec();
   }

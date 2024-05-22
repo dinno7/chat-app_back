@@ -1,7 +1,6 @@
-import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
-import { type Response } from 'express';
-import { Serialize } from 'src/common/decorator/serialize.decorator';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ActiveUser } from 'src/iam/authentication/decorators/active-user.decorator';
+import { Serialize } from 'src/iam/decorators/serialize.decorator';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UserSerializeSchema } from './dtos/user.serialize';
 import { UserDocument } from './schemas/users.schema';
@@ -13,7 +12,7 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
   @Get('me')
   getMe(@ActiveUser() user: UserDocument) {
-    return user;
+    return user.toObject();
   }
 
   @Post('update')
@@ -33,11 +32,5 @@ export class UserController {
   findUsers(@Query('q') nameOrEmail: string) {
     if (!nameOrEmail.length) return [];
     return this.userService.getUserByEmailOrName(nameOrEmail);
-  }
-  @Get('test')
-  test(@Res({ passthrough: true }) res: Response) {
-    res.cookie('access_token', 'ABCDEFGHIJKLMNOP', { httpOnly: true });
-    console.log(`✨ `, 'rec');
-    return 'HELLO THIS IS TEST';
   }
 }
