@@ -1,18 +1,19 @@
-import { BadGatewayException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
 import {
-  MessageBody,
+  ConnectedSocket,
   OnGatewayConnection,
   OnGatewayDisconnect,
-  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
+import { Model, isValidObjectId } from 'mongoose';
 import { Server, Socket } from 'socket.io';
 import { RedisService } from 'src/redis/redis.service';
 import { UserService } from 'src/user/user.service';
 import { ONLINE_USER_REDIS_SET_KEY } from './messenger.constants';
-import { MESSENGER_EMITS } from './types/emits.type';
-
+import { Conversation } from './schemas/conversation.schema';
+import { Message, MessageDocument } from './schemas/message.schema';
+import { MESSENGER_EVENTS } from './types/emits.type';
 @WebSocketGateway({
   cors: {
     origin: '*',
@@ -24,16 +25,19 @@ export class MessengerService
   constructor(
     private readonly redisService: RedisService,
     private readonly userService: UserService,
+    @InjectModel(Message.name) private readonly MessageModel: Model<Message>,
+    @InjectModel(Conversation.name)
+    private readonly ConversationModel: Model<Conversation>,
   ) {}
 
   @WebSocketServer()
   server: Server;
 
-  async handleConnection(client: Socket, ...args: any[]) {
+  async handleConnection(@ConnectedSocket() client: Socket) {
     const user = await this.userService.getUserByJWTToken(
       client.handshake.auth?.token,
     );
-    if (!user?.id) throw new BadGatewayException('Token not valid!');
+    if (!user?.id) return;
 
     //? Create a room
     client.join(user.id);
@@ -41,25 +45,30 @@ export class MessengerService
     await this.redisService.pushToSet(ONLINE_USER_REDIS_SET_KEY, user.id);
 
     this.server.emit(
-      MESSENGER_EMITS.GetOnlineUsers,
+      MESSENGER_EVENTS.GetOnlineUsers,
       await this.__getAllOnlineUsers(),
     );
 
-    console.log(`✨ new Connection `, client.id, args);
+    console.log(`✨ new Connection `, client.id);
   }
-  async handleDisconnect(client: Socket) {
+  async handleDisconnect(@ConnectedSocket() client: Socket) {
     const user = await this.userService.getUserByJWTToken(
       client.handshake.auth?.token,
     );
-    await this.redisService.removeElFromSet(ONLINE_USER_REDIS_SET_KEY, user.id);
+    if (user?.id)
+      await this.redisService.removeElFromSet(
+        ONLINE_USER_REDIS_SET_KEY,
+        user.id,
+      );
 
     this.server.emit(
-      MESSENGER_EMITS.GetOnlineUsers,
+      MESSENGER_EVENTS.GetOnlineUsers,
       await this.__getAllOnlineUsers(),
     );
 
     console.log(`✨ `, client.id + ' Disconnected');
   }
+
   private async __getAllOnlineUsers() {
     return [
       ...new Set(
@@ -68,33 +77,104 @@ export class MessengerService
     ];
   }
 
-  @SubscribeMessage('provideReceiverUserDetails')
-  async giveReceiverUserDetails(@MessageBody() userId: string) {
-    const user = await this.userService.getUserById(userId, [
-      '-createdAt',
-      '-updatedAt',
-      '-__v',
-    ]);
-    const data = user.toJSON({
-      transform(doc, ret) {
-        ret.id = String(doc._id);
-        delete ret._id;
-      },
-    });
+  private async __getChatConversations(userId: string) {
+    if (!this.__isValidObjectIds(userId)) return [];
 
-    return {
-      event: 'consumeReceiverUserDetails',
-      data,
-    };
+    const conversations = await this.ConversationModel.find({
+      $or: [{ from: userId }, { to: userId }],
+    })
+      .sort({
+        updatedAt: -1,
+      })
+      .select(['id', 'to', 'from', 'lastMessage', 'updatedAt', 'messages'])
+      .populate(['lastMessage', 'to', 'from', 'messages']);
+
+    return conversations.map(
+      ({ lastMessage, id, to, from, updatedAt, messages }) => {
+        const unseenMessagesCount = messages.reduce(
+          (acc, curr) =>
+            String(curr.sender) !== userId ? acc + (!curr.seen ? 1 : 0) : acc,
+          0,
+        );
+
+        const result = {
+          id,
+          lastMessage,
+          updatedAt,
+          unseenMessagesCount,
+          user: {},
+        };
+        if (to.id === userId) result.user = from;
+        else if (from.id === userId) result.user = to;
+
+        return result;
+      },
+    );
   }
 
-  @SubscribeMessage('message')
-  async handleMessage(@MessageBody() message: any) {
-    console.log(`✨ `, message);
-    this.server.to(message.to).emit('message', {
-      user: message.from,
-      message: message.msg,
-    });
-    return { event: 'messageAck', data: true };
+  private __isMessageValid(
+    msg: MessageDocument & { from: string; to: string },
+  ) {
+    return (
+      this.__isValidObjectIds(msg.from, msg.to) &&
+      (msg.text || msg.videoUrl || msg.imageUrl)
+    );
+  }
+
+  private async __getConversationMessages(from: string, to: string) {
+    const conversation = await this.ConversationModel.findOne({
+      $or: [
+        { from: from, to: to },
+        { from: to, to: from },
+      ],
+    }).select('_id');
+    if (!conversation?._id) return [];
+
+    const conversationMsgs = await this.MessageModel.find({
+      conversation: conversation._id,
+    })
+      .sort({
+        createdAt: -1,
+      })
+      .limit(100)
+      .exec();
+
+    return conversationMsgs
+      .reduce(
+        (
+          acc,
+          {
+            conversation,
+            sender,
+            receiver,
+            seen,
+            text,
+            imageUrl,
+            videoUrl,
+            id,
+            createdAt,
+          },
+        ) =>
+          (acc = [
+            ...acc,
+            {
+              id,
+              sender,
+              receiver,
+              seen,
+              videoUrl,
+              imageUrl,
+              text,
+              createdAt,
+              conversation,
+            },
+          ]),
+        [],
+      )
+      .reverse();
+  }
+
+  private __isValidObjectIds(...ids: string[]) {
+    return ids.every((id) => isValidObjectId(id));
   }
 }
