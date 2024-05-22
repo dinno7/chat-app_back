@@ -107,6 +107,94 @@ export class MessengerService
     };
   }
 
+  @UseGuards(AuthenticationWsGuard)
+  @SubscribeMessage('message')
+  async handleMessage(
+    @ActiveSocketUser() activeUser: UserDocument,
+    @MessageBody()
+    message: MessageDocument & { from: string; to: string },
+  ) {
+    message.from = activeUser.id;
+    if (!this.__isMessageValid(message))
+      return { event: MESSENGER_EVENTS.MessageAck, data: false };
+
+    const newMsg = new this.MessageModel({
+      text: message.text,
+      imageUrl: message.imageUrl,
+      videoUrl: message.videoUrl,
+      conversation: null,
+      sender: activeUser.id,
+      receiver: message.to,
+      seen: String(activeUser.id) === String(message.to) ? true : false,
+    });
+
+    const conversation = await this.ConversationModel.findOneAndUpdate(
+      {
+        $or: [
+          { from: activeUser.id, to: message.to },
+          { from: message.to, to: activeUser.id },
+        ],
+      },
+      {
+        $push: { messages: newMsg._id },
+        $set: {
+          lastMessage: newMsg._id,
+        },
+        $setOnInsert: {
+          from: activeUser.id,
+          to: message.to,
+        },
+      },
+      {
+        upsert: true,
+        new: true,
+        runValidators: true,
+        projection: 'messages',
+      },
+    );
+
+    // @ts-expect-error Can not detect Conversation as a objectId
+    newMsg.conversation = conversation._id;
+    await newMsg.save();
+
+    await conversation.populate([
+      {
+        path: 'messages',
+      },
+    ]);
+
+    const [activeUserUpdatedConversations, anotherUserUpdatedConversations] = (
+      await Promise.allSettled([
+        this.__getChatConversations(activeUser.id),
+        this.__getChatConversations(message.to),
+      ])
+    ).map((c) => c.status === 'fulfilled' && c.value);
+
+    this.server
+      .to(message.to)
+      .emit(MESSENGER_EVENTS.Message, conversation.messages);
+    this.server
+      .to(message.to)
+      .emit(
+        MESSENGER_EVENTS.GetChatConversations,
+        anotherUserUpdatedConversations,
+      );
+
+    if (activeUser.id !== message.to) {
+      this.server
+        .to(activeUser.id)
+        .emit(MESSENGER_EVENTS.Message, conversation.messages);
+      this.server
+        .to(activeUser.id)
+        .emit(
+          MESSENGER_EVENTS.GetChatConversations,
+          activeUserUpdatedConversations,
+        );
+    }
+
+    return { event: MESSENGER_EVENTS.MessageAck, data: true };
+  }
+
   private async __getAllOnlineUsers() {
     return [
       ...new Set(
