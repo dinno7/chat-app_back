@@ -10,14 +10,14 @@ export class Conversation {
     ref: 'User',
     required: true,
   })
-  sender: User;
+  from: User;
 
   @Prop({
     type: SCHEMA.Types.ObjectId,
     ref: 'User',
     required: true,
   })
-  receiver: User;
+  to: User;
 
   @Prop({
     type: [
@@ -26,9 +26,21 @@ export class Conversation {
         ref: 'Message',
       },
     ],
+    default: [],
     required: true,
   })
-  message: Message[];
+  messages: Message[];
+
+  @Prop({
+    type: SCHEMA.Types.ObjectId,
+    ref: 'Message',
+    default: null,
+    required: true,
+  })
+  lastMessage: Message;
+
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export type ConversationDocument = HydratedDocument<Conversation>;
