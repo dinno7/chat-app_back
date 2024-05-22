@@ -1,15 +1,21 @@
+import { UseGuards } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import {
   ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Model, isValidObjectId } from 'mongoose';
 import { Server, Socket } from 'socket.io';
 import { RedisService } from 'src/redis/redis.service';
+import { UserDocument } from 'src/user/schemas/users.schema';
 import { UserService } from 'src/user/user.service';
+import { ActiveSocketUser } from 'src/ws/decorators/active-socket-user.decorator';
+import { AuthenticationWsGuard } from 'src/ws/guards/authentication-ws.guard';
 import { ONLINE_USER_REDIS_SET_KEY } from './messenger.constants';
 import { Conversation } from './schemas/conversation.schema';
 import { Message, MessageDocument } from './schemas/message.schema';
@@ -67,6 +73,38 @@ export class MessengerService
     );
 
     console.log(`✨ `, client.id + ' Disconnected');
+  }
+
+  @SubscribeMessage('provideReceiverUserDetails')
+  @UseGuards(AuthenticationWsGuard)
+  async giveReceiverUserDetails(
+    @ConnectedSocket() client: Socket,
+    @ActiveSocketUser() activeUser: UserDocument,
+    @MessageBody() receiverUserId: string,
+  ) {
+    if (!this.__isValidObjectIds(activeUser.id, receiverUserId))
+      return {
+        event: MESSENGER_EVENTS.ConsumeReceiverUserDetails,
+        data: null,
+      };
+
+    const user = await this.userService.getUserById(receiverUserId);
+
+    const conversationMessages = await this.__getConversationMessages(
+      activeUser.id,
+      receiverUserId,
+    );
+    client.emit(MESSENGER_EVENTS.Message, conversationMessages);
+
+    return {
+      event: MESSENGER_EVENTS.ConsumeReceiverUserDetails,
+      data: {
+        email: user?.email,
+        id: user?.id,
+        name: user?.name,
+        profilePicture: user?.profilePicture,
+      },
+    };
   }
 
   private async __getAllOnlineUsers() {
