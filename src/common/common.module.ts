@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ErrorFilter } from './filters/error.filter';
-import { SerializeResponseInterceptor } from './interceptors/serialize-response.interceptor';
+import { GlobalResponsesSerializerInterceptor } from './interceptors/global-responses-serializer.interceptor';
 
 @Module({
   providers: [
     {
       provide: APP_INTERCEPTOR,
-      useClass: SerializeResponseInterceptor,
+      useClass: GlobalResponsesSerializerInterceptor,
     },
     {
       provide: APP_FILTER,
