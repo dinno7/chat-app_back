@@ -202,6 +202,44 @@ export class MessengerService
     return { event: MESSENGER_EVENTS.GetChatConversations, data };
   }
 
+  @UseGuards(AuthenticationWsGuard)
+  @SubscribeMessage('seen')
+  async handleSeen(
+    @ActiveSocketUser() activeUser: UserDocument,
+    @MessageBody() receiverUserId: string,
+  ) {
+    const conversation = await this.ConversationModel.findOne({
+      $or: [
+        { to: receiverUserId, from: activeUser.id },
+        { to: activeUser.id, from: receiverUserId },
+      ],
+    });
+    if (conversation?.messages)
+      await this.MessageModel.updateMany(
+        {
+          _id: { $in: conversation.messages },
+          sender: receiverUserId,
+        },
+        {
+          $set: {
+            seen: true,
+          },
+        },
+      );
+
+    await conversation.populate('messages');
+
+    this.server
+      .to(receiverUserId)
+      .emit(MESSENGER_EVENTS.Message, conversation.messages);
+
+    const conversations = await this.__getChatConversations(activeUser.id);
+    return {
+      event: MESSENGER_EVENTS.GetChatConversations,
+      data: conversations,
+    };
+  }
+
   private async __getAllOnlineUsers() {
     return [
       ...new Set(
