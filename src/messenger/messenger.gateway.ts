@@ -195,6 +195,13 @@ export class MessengerService
     return { event: MESSENGER_EVENTS.MessageAck, data: true };
   }
 
+  @UseGuards(AuthenticationWsGuard)
+  @SubscribeMessage('getChatConversations')
+  async handleChatConversations(@ActiveSocketUser() user: UserDocument) {
+    const data = await this.__getChatConversations(user.id);
+    return { event: MESSENGER_EVENTS.GetChatConversations, data };
+  }
+
   private async __getAllOnlineUsers() {
     return [
       ...new Set(
